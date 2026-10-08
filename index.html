@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b1020">
+<title>AlexZero Othello</title>
+<style>
+  :root {
+    --bg: #0b1020; --panel: #161d31; --text: #e8edf6; --muted: #93a0bd;
+    --felt: #1f7a44; --felt-dark: #14532b; --line: #0e3d20; --hint: #ffffff;
+    --accent: #f4c542;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0; min-height: 100dvh; background: var(--bg); color: var(--text);
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    display: flex; flex-direction: column; align-items: center; gap: 14px;
+    padding: max(16px, env(safe-area-inset-top)) 14px max(16px, env(safe-area-inset-bottom));
+    -webkit-tap-highlight-color: transparent;
+  }
+  .back { align-self: flex-start; color: var(--muted); font-size: .85rem; text-decoration: none; }
+  .back:hover { color: var(--text); }
+  h1 { font-size: clamp(1.2rem, 5vw, 1.5rem); margin: 0; font-weight: 650; text-align: center; }
+  h1 span { color: var(--accent); }
+  .status { min-height: 24px; font-size: clamp(.9rem, 3.6vw, 1.05rem); font-weight: 600; text-align: center; }
+  .status .think { color: var(--accent); }
+  .note { color: var(--muted); font-size: .8rem; min-height: 16px; text-align: center; }
+
+  .scorebar { display: flex; gap: 22px; align-items: center; font-weight: 700; font-size: 1.05rem; }
+  .scorebar .s { display: flex; align-items: center; gap: 8px; }
+  .scorebar .pip { width: 20px; height: 20px; border-radius: 50%; display: inline-block; }
+  .pip.b { background: radial-gradient(circle at 35% 30%, #555, #111); }
+  .pip.w { background: radial-gradient(circle at 35% 30%, #fff, #c9ccd6); }
+  .scorebar .s.turn { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 8px; }
+
+  .board {
+    width: min(94vw, 520px); aspect-ratio: 1 / 1;
+    background: var(--felt-dark); padding: 8px; border-radius: 10px;
+    display: grid; grid-template-columns: repeat(8, 1fr); gap: 3px;
+    box-shadow: 0 14px 40px rgba(0,0,0,.45); touch-action: manipulation;
+  }
+  .cell {
+    background: var(--felt); border-radius: 3px; position: relative;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .board.clickable .cell.legal { cursor: pointer; }
+  .disc {
+    width: 82%; height: 82%; border-radius: 50%;
+    transition: background .35s ease;
+    animation: pop .2s ease;
+  }
+  .disc.b { background: radial-gradient(circle at 35% 30%, #5a5a5a, #0c0c0c); box-shadow: 0 2px 4px rgba(0,0,0,.5); }
+  .disc.w { background: radial-gradient(circle at 35% 30%, #ffffff, #c4c8d2); box-shadow: 0 2px 4px rgba(0,0,0,.45); }
+  @keyframes pop { from { transform: scale(.5); } to { transform: scale(1); } }
+  .cell.legal .hint {
+    width: 30%; height: 30%; border-radius: 50%; opacity: .45;
+    background: var(--hint);
+  }
+  .cell.last { box-shadow: inset 0 0 0 3px var(--accent); border-radius: 3px; }
+
+  .controls {
+    display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+    justify-content: center; background: var(--panel);
+    padding: 12px 14px; border-radius: 12px; width: min(94vw, 520px);
+  }
+  .controls .field { display: flex; align-items: center; gap: 6px; }
+  .controls label { font-size: .8rem; color: var(--muted); }
+  select, button {
+    font: inherit; font-size: .95rem; background: #222c46; color: var(--text);
+    border: 1px solid #344063; border-radius: 8px; padding: 10px 14px;
+    min-height: 44px; cursor: pointer;
+  }
+  button.primary { background: var(--felt); border-color: var(--felt); font-weight: 600; }
+  button:hover { filter: brightness(1.1); }
+  button:active { transform: translateY(1px); }
+  @media (max-width: 440px) {
+    .controls { flex-direction: column; align-items: stretch; }
+    .controls .field { justify-content: space-between; }
+    select, button { width: 100%; }
+  }
+</style>
+</head>
+<body>
+  <a class="back" href="/">← Alex's Lab</a>
+  <h1>AlexZero <span>Othello</span></h1>
+  <div class="scorebar">
+    <div class="s" id="sB"><span class="pip b"></span><span id="scoreB">2</span></div>
+    <div class="s" id="sW"><span class="pip w"></span><span id="scoreW">2</span></div>
+  </div>
+  <div class="status" id="status">Your move.</div>
+  <div class="board locked" id="board"></div>
+  <div class="note" id="note"></div>
+
+  <div class="controls">
+    <div class="field"><label>Mode</label>
+      <select id="mode">
+        <option value="ai" selected>vs AlexZero</option>
+        <option value="two">Two players</option>
+        <option value="demo">Demo (watch AI)</option>
+      </select>
+    </div>
+    <div class="field" id="sideField"><label>You play</label>
+      <select id="side">
+        <option value="B">Black (first)</option>
+        <option value="W">White (second)</option>
+      </select>
+    </div>
+    <div class="field" id="simsField"><label>AI strength</label>
+      <select id="sims">
+        <option value="100">Easy</option>
+        <option value="300" selected>Medium</option>
+        <option value="800">Hard</option>
+      </select>
+    </div>
+    <button class="primary" id="newgame">New game</button>
+  </div>
+
+<script>
+const SIZE = 8;
+const boardEl = document.getElementById("board");
+const statusEl = document.getElementById("status");
+const noteEl = document.getElementById("note");
+
+let moves = [];
+let legal = [];
+let busy = false;
+let gameOver = false;
+let turn = "B";            // side to move, from the server
+let demoToken = 0;         // cancels the demo auto-play loop
+function currentMode() { return document.getElementById("mode").value; }   // ai/two/demo
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+const cells = [];
+for (let i = 0; i < SIZE * SIZE; i++) {
+  const cell = document.createElement("div");
+  cell.className = "cell"; cell.dataset.i = i;
+  cell.addEventListener("click", () => onCell(i));
+  boardEl.appendChild(cell);
+  cells.push(cell);
+}
+
+let boardState = Array.from({length: SIZE}, () => Array(SIZE).fill(""));
+function humanChar() { return document.getElementById("side").value; }   // "B"/"W"
+function humanColor() { return humanChar() === "B" ? "b" : "w"; }
+
+const DIRS = [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]];
+// Mirror of the server's flip rule, so we can show YOUR captures instantly.
+function computeFlips(grid, player, r, c) {
+  const opp = player === "B" ? "W" : "B";
+  const flips = [];
+  for (const [dr, dc] of DIRS) {
+    const line = []; let rr = r + dr, cc = c + dc;
+    while (rr >= 0 && rr < SIZE && cc >= 0 && cc < SIZE && grid[rr][cc] === opp) {
+      line.push([rr, cc]); rr += dr; cc += dc;
+    }
+    if (line.length && rr >= 0 && rr < SIZE && cc >= 0 && cc < SIZE && grid[rr][cc] === player)
+      flips.push(...line);
+  }
+  return flips;
+}
+
+// Update only the disc elements to match a board grid (handles flips via class swap).
+function renderDiscs(grid) {
+  for (let i = 0; i < 64; i++) {
+    const cell = cells[i];
+    const v = grid[Math.floor(i / SIZE)][i % SIZE];
+    let disc = cell.querySelector(".disc");
+    if (v) {
+      const cls = v === "B" ? "b" : "w";
+      if (!disc) { disc = document.createElement("div"); disc.className = "disc " + cls; cell.appendChild(disc); }
+      else { disc.className = "disc " + cls; }
+    } else if (disc) {
+      disc.remove();
+    }
+  }
+}
+
+function render(state) {
+  boardState = state.board.map(row => row.slice());
+  cells.forEach(cell => {
+    cell.classList.remove("legal", "last");
+    const h = cell.querySelector(".hint"); if (h) h.remove();
+  });
+  renderDiscs(boardState);
+  legal = state.legal || [];
+  if (!gameOver) legal.forEach(i => {
+    cells[i].classList.add("legal");
+    const h = document.createElement("div"); h.className = "hint"; cells[i].appendChild(h);
+  });
+  if (state.last_move !== null && state.last_move !== undefined && state.last_move < 64)
+    cells[state.last_move].classList.add("last");
+  document.getElementById("scoreB").textContent = state.score.B;
+  document.getElementById("scoreW").textContent = state.score.W;
+}
+
+function setTurnHighlight(turn) {
+  document.getElementById("sB").classList.toggle("turn", turn === "B" && !gameOver);
+  document.getElementById("sW").classList.toggle("turn", turn === "W" && !gameOver);
+}
+
+// Who places when the user clicks: in 2-player it's the side to move; vs AI it's you.
+function placingChar() { return currentMode() === "two" ? turn : humanChar(); }
+function canClick() {
+  const m = currentMode();
+  if (gameOver || busy) return false;
+  if (m === "demo") return false;
+  if (m === "ai") return turn === humanChar();
+  return true;   // two-player: whoever's turn it is
+}
+
+function setScores() {
+  document.getElementById("scoreB").textContent = boardState.flat().filter(x => x === "B").length;
+  document.getElementById("scoreW").textContent = boardState.flat().filter(x => x === "W").length;
+}
+
+function setStatus(state) {
+  const m = currentMode();
+  noteEl.textContent = (state.notes && state.notes.length) ? state.notes.join("  ") : "";
+  if (state.status) {
+    gameOver = true;
+    if (state.status === "draw") statusEl.textContent = "Draw.";
+    else if (m === "ai") statusEl.innerHTML = state.status === humanChar() ? "🎉 You win!" : "AlexZero wins.";
+    else statusEl.innerHTML = (state.status === "B" ? "Black" : "White") + " wins!";
+  } else if (m === "ai") {
+    statusEl.textContent = "Your move.";
+  } else if (m === "two") {
+    statusEl.textContent = (turn === "B" ? "Black" : "White") + " to move.";
+  } else { // demo
+    statusEl.textContent = "Demo — AlexZero plays both sides.";
+  }
+  setTurnHighlight(turn);
+  boardEl.classList.toggle("clickable", canClick());
+  boardEl.classList.toggle("locked", !canClick());
+}
+
+async function post() {
+  busy = true;
+  boardEl.classList.remove("clickable"); boardEl.classList.add("locked");
+  if (currentMode() !== "two")
+    statusEl.innerHTML = '<span class="think">AlexZero is thinking…</span>';
+  const game = gameId;
+  const state = await think({ moves, human: humanChar(), sims: Number(document.getElementById("sims").value), mode: currentMode() });
+  if (game !== gameId) return;   // a new game started while the AI was thinking
+  busy = false;
+  if (state.error) { statusEl.textContent = "Error: " + state.error; return; }
+  moves = state.moves; turn = state.turn;
+  render(state); setStatus(state);
+}
+
+// The AI runs in a Web Worker (engine.js: the trained net + MCTS, in-browser).
+const worker = new Worker("worker.js");
+const pending = new Map();
+let gameId = 0, reqId = 0;
+worker.onmessage = e => { pending.get(e.data.id)?.(e.data.state); pending.delete(e.data.id); };
+worker.onerror = e => { pending.forEach(r => r({ error: e.message || "AI failed to load" })); pending.clear(); };
+function think(req) {
+  return new Promise(resolve => {
+    const id = ++reqId;
+    pending.set(id, resolve);
+    worker.postMessage({ id, ...req });
+  });
+}
+
+function onCell(i) {
+  if (!canClick() || !legal.includes(i)) return;
+  // Show the move AND its captures immediately (before the server responds).
+  const r = Math.floor(i / SIZE), c = i % SIZE;
+  const player = placingChar();                     // "B"/"W"
+  const flips = computeFlips(boardState, player, r, c);
+  boardState[r][c] = player;
+  flips.forEach(([fr, fc]) => boardState[fr][fc] = player);
+  cells.forEach(cell => { cell.classList.remove("legal", "last");
+    const h = cell.querySelector(".hint"); if (h) h.remove(); });
+  renderDiscs(boardState);
+  setScores();
+  moves.push(i);
+  post();
+}
+
+async function demoLoop(token) {
+  while (token === demoToken && !gameOver) {
+    await post();                       // AI makes one move
+    if (token !== demoToken || gameOver) break;
+    await sleep(800);                   // pause so it's watchable
+  }
+}
+
+function initialGrid() {
+  const g = Array.from({ length: SIZE }, () => Array(SIZE).fill(""));
+  g[3][3] = "W"; g[4][4] = "W"; g[3][4] = "B"; g[4][3] = "B";
+  return g;
+}
+
+function newGame() {
+  demoToken++;                          // cancel any running demo
+  gameId++;                             // ignore any AI reply still in flight
+  moves = []; legal = []; busy = false; gameOver = false; turn = "B";
+  cells.forEach(c => { c.classList.remove("legal", "last"); c.innerHTML = ""; });
+  noteEl.textContent = "";
+  if (currentMode() === "demo") {
+    boardState = initialGrid(); renderDiscs(boardState); setScores();
+    setTurnHighlight("B");
+    statusEl.textContent = "Demo — AlexZero plays both sides.";
+    const t = demoToken;
+    sleep(600).then(() => { if (t === demoToken) demoLoop(t); });
+  } else {
+    post();   // server returns the opening position (vs-AI may include the AI's first move)
+  }
+}
+
+function updateModeUI() {
+  document.getElementById("sideField").style.display = currentMode() === "ai" ? "" : "none";
+  document.getElementById("simsField").style.display = currentMode() === "two" ? "none" : "";
+}
+
+document.getElementById("newgame").addEventListener("click", newGame);
+document.getElementById("side").addEventListener("change", newGame);
+document.getElementById("mode").addEventListener("change", () => { updateModeUI(); newGame(); });
+document.getElementById("sims").addEventListener("change", () => {});
+updateModeUI();
+newGame();
+</script>
+</body>
+</html>
